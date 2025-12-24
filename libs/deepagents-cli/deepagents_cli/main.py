@@ -189,6 +189,7 @@ async def simple_cli(
             "openai": "OpenAI",
             "anthropic": "Anthropic",
             "google": "Google",
+            "ollama": "Ollama",
         }.get(settings.model_provider, settings.model_provider)
         console.print(
             f"[green]✓ Model:[/green] {provider_display} → '{settings.model_name}'",

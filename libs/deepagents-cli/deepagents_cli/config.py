@@ -407,9 +407,11 @@ def _detect_provider(model_name: str) -> str | None:
         model_name: Model name to detect provider from
 
     Returns:
-        Provider name (openai, anthropic, google) or None if can't detect
+        Provider name (openai, anthropic, google, ollama) or None if can't detect
     """
     model_lower = model_name.lower()
+    if model_lower.startswith("ollama:"):
+        return "ollama"
     if any(x in model_lower for x in ["gpt", "o1", "o3"]):
         return "openai"
     if "claude" in model_lower:
@@ -428,7 +430,7 @@ def create_model(model_name_override: str | None = None) -> BaseChatModel:
         model_name_override: Optional model name to use instead of environment variable
 
     Returns:
-        ChatModel instance (OpenAI, Anthropic, or Google)
+        ChatModel instance (OpenAI, Anthropic, Google, or Ollama)
 
     Raises:
         SystemExit if no API key is configured or model provider can't be determined
@@ -445,9 +447,10 @@ def create_model(model_name_override: str | None = None) -> BaseChatModel:
             console.print("  - OpenAI: gpt-*, o1-*, o3-*")
             console.print("  - Anthropic: claude-*")
             console.print("  - Google: gemini-*")
+            console.print("  - Ollama: ollama:* (e.g., ollama:nemotron-3-nano)")
             sys.exit(1)
 
-        # Check if API key for detected provider is available
+        # Check if API key for detected provider is available (Ollama doesn't need API key)
         if provider == "openai" and not settings.has_openai:
             console.print(
                 f"[bold red]Error:[/bold red] Model '{model_name_override}' requires OPENAI_API_KEY"
@@ -463,6 +466,7 @@ def create_model(model_name_override: str | None = None) -> BaseChatModel:
                 f"[bold red]Error:[/bold red] Model '{model_name_override}' requires GOOGLE_API_KEY"
             )
             sys.exit(1)
+        # Ollama doesn't require API key check
 
         model_name = model_name_override
     # Use environment variable defaults, detect provider by API key priority
@@ -476,15 +480,23 @@ def create_model(model_name_override: str | None = None) -> BaseChatModel:
         provider = "google"
         model_name = os.environ.get("GOOGLE_MODEL", "gemini-3-pro-preview")
     else:
-        console.print("[bold red]Error:[/bold red] No API key configured.")
-        console.print("\nPlease set one of the following environment variables:")
-        console.print("  - OPENAI_API_KEY     (for OpenAI models like gpt-5-mini)")
-        console.print("  - ANTHROPIC_API_KEY  (for Claude models)")
-        console.print("  - GOOGLE_API_KEY     (for Google Gemini models)")
-        console.print("\nExample:")
-        console.print("  export OPENAI_API_KEY=your_api_key_here")
-        console.print("\nOr add it to your .env file.")
-        sys.exit(1)
+        # Check for Ollama model in environment variable
+        ollama_model = os.environ.get("OLLAMA_MODEL")
+        if ollama_model:
+            provider = "ollama"
+            model_name = ollama_model
+        else:
+            console.print("[bold red]Error:[/bold red] No API key configured.")
+            console.print("\nPlease set one of the following environment variables:")
+            console.print("  - OPENAI_API_KEY     (for OpenAI models like gpt-5-mini)")
+            console.print("  - ANTHROPIC_API_KEY  (for Claude models)")
+            console.print("  - GOOGLE_API_KEY     (for Google Gemini models)")
+            console.print("  - OLLAMA_MODEL       (for Ollama models, e.g., ollama:nemotron-3-nano)")
+            console.print("\nExample:")
+            console.print("  export OPENAI_API_KEY=your_api_key_here")
+            console.print("  export OLLAMA_MODEL=ollama:nemotron-3-nano")
+            console.print("\nOr add it to your .env file.")
+            sys.exit(1)
 
     # Store model info in settings for display
     settings.model_name = model_name
@@ -509,4 +521,19 @@ def create_model(model_name_override: str | None = None) -> BaseChatModel:
             model=model_name,
             temperature=0,
             max_tokens=None,
+        )
+    if provider == "ollama":
+        from langchain_ollama import ChatOllama
+
+        # Strip "ollama:" prefix if present
+        actual_model_name = model_name
+        if model_name.startswith("ollama:"):
+            actual_model_name = model_name[7:]  # Remove "ollama:" prefix
+
+        # Get Ollama base URL from environment or use default
+        base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+
+        return ChatOllama(
+            model=actual_model_name,
+            base_url=base_url,
         )
